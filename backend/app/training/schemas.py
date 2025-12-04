@@ -1,11 +1,20 @@
 from pydantic import BaseModel
-import datetime
+from enum import Enum
+from datetime import date
+
+class TrainingType(str, Enum):
+    individual = "individual"
+    group = "group"
 
 class TrainingSchema(BaseModel):
     id: int
-    start_time: datetime.datetime
-    end_time: datetime.datetime
-    is_group_training: bool
+    coach: str
+    type: TrainingType
+    title: str
+    time: str
+    location: str
+    date: date
+    participants: int
 
     class Config:
         from_attributes = True

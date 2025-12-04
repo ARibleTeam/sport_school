@@ -8,7 +8,9 @@ from sqlalchemy import select
 from app.specialization.models import SportType, CoachSportType  # Импортируем модели
 from app.utils import get_password_hash
 from app.training.models import Training
-from datetime import date
+from datetime import date, datetime
+from app.hall.models import Hall
+from app.training_hall.models import TrainingHall
 
 test_router = APIRouter(prefix="/tests", tags=["СОЗДАТЬ ТЕСТОВЫЕ ДАННЫЕ"])
 
@@ -151,35 +153,76 @@ async def seed_coaches():
 
     return {"message": "Тестовые данные успешно добавлены"}
 
-@test_router.post("/trainings", summary="Заполнение базы данных тестовыми данными о тренировках")
-async def seed_trainings():
+@test_router.post("/halls_and_trainings", summary="Заполнение базы данных тестовыми данными о залах и тренировках, и связях между ними")
+async def seed_halls_and_trainings():
     async with async_session_maker() as session:
+        # Проверяем, есть ли уже залы в базе данных
+        existing_halls = await session.execute(select(Hall))
+        if existing_halls.scalars().first() is not None:
+            print("Тестовые данные о залах уже существуют в базе данных.")
+            #return {"message": "Тестовые данные о залах уже существуют в базе данных."} # Don't return, just skip hall creation
+            add_halls = False
+        else:
+            add_halls = True
+
         # Проверяем, есть ли уже тренировки в базе данных
         existing_trainings = await session.execute(select(Training))
         if existing_trainings.scalars().first() is not None:
             print("Тестовые данные о тренировках уже существуют в базе данных.")
-            return {"message": "Тестовые данные о тренировках уже существуют в базе данных."}
+            #return {"message": "Тестовые данные о тренировках уже существуют в базе данных."} # Don't return, just skip training creation
+            add_trainings = False
+        else:
+            add_trainings = True
 
-        # Получаем тренеров из базы данных
-        coaches = await session.execute(select(Coach))
-        coaches = coaches.scalars().all()
+        halls_data = []
+        if add_halls:
+             halls_data = [
+                {"name": "Зал бокса", "capacity": 20},
+                {"name": "Бассейн 1", "capacity": 30},
+                {"name": "Зал №2", "capacity": 50},
+                {"name": "Кроссфит зона", "capacity": 40},
+            ]
 
-        if not coaches:
-            raise HTTPException(status_code=400, detail="Тренеры не найдены, сначала добавьте тренеров")
+        halls = []
+        for hall_data in halls_data:
+            hall = Hall(**hall_data)
+            session.add(hall)
+            halls.append(hall)
+        await session.flush()
 
-        # Создаем тестовые данные для тренировок
-        trainings_data = [
-            {"type": "individual", "title": "Анализ техники плавания", "coach_id": coaches[0].id, "time": "09:00 - 10:30", "location": "Бассейн 1", "date": date(2024, 5, 25), "participants": None},
-            {"type": "group", "title": "Общая физическая подготовка (ОФП)", "coach_id": coaches[1].id, "time": "11:00 - 12:30", "location": "Зал №2", "date": date(2024, 5, 25), "participants": 22},
-            {"type": "individual", "title": "Персональная тренировка по боксу", "coach_id": coaches[2].id, "time": "14:00 - 15:00", "location": "Зал бокса", "date": date(2024, 5, 26), "participants": None},
-            {"type": "group", "title": "Функциональный тренинг", "coach_id": coaches[3].id, "time": "16:00 - 17:30", "location": "Кроссфит зона", "date": date(2024, 5, 26), "participants": 15},
-        ]
+        trainings_data = []
+        if add_trainings:
+            # Создаем тестовые данные для тренировок
+            #{"type": "individual", "title": "Анализ техники плавания", "coach_id": coaches[0].id, "time": "09:00 - 10:30", "location": "Бассейн 1", "date": date(2024, 5, 25), "participants": None},
+            trainings_data = [
+                {"start_time": datetime(2024, 5, 25, 9, 0), "end_time": datetime(2024, 5, 25, 10, 30), "is_group_training": False},
+                {"start_time": datetime(2024, 5, 25, 11, 0), "end_time": datetime(2024, 5, 25, 12, 30), "is_group_training": True},
+                {"start_time": datetime(2024, 5, 26, 14, 0), "end_time": datetime(2024, 5, 26, 15, 0), "is_group_training": False},
+                {"start_time": datetime(2024, 5, 26, 16, 0), "end_time": datetime(2024, 5, 26, 17, 30), "is_group_training": True},
+            ]
 
+        trainings = []
         for training_data in trainings_data:
             training = Training(**training_data)
             session.add(training)
+            trainings.append(training)
+        await session.flush()
+
+        training_halls_data = []
+
+        # Create the relationships between trainings and halls
+        if add_trainings and add_halls:
+            training_halls_data = [
+                {"training_id": trainings[0].id, "hall_id": halls[1].id}, # Swimming analysis in Pool 1
+                {"training_id": trainings[1].id, "hall_id": halls[2].id}, # OFP in Hall 2
+                {"training_id": trainings[2].id, "hall_id": halls[0].id}, # Boxing in Boxing hall
+                {"training_id": trainings[3].id, "hall_id": halls[3].id}, # Functional training in CrossFit zone
+            ]
+
+        for training_hall_data in training_halls_data:
+            training_hall = TrainingHall(**training_hall_data)
+            session.add(training_hall)
 
         await session.commit()
-        print("Тестовые данные о тренировках успешно добавлены")
-        return {"message": "Тестовые данные о тренировках успешно добавлены"}
-
+        print("Тестовые данные о залах и тренировках успешно добавлены")
+        return {"message": "Тестовые данные о залах и тренировках успешно добавлены"}
