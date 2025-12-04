@@ -1,8 +1,9 @@
 from sqlalchemy import Column, Integer, DateTime, Boolean, JSON
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from sqlalchemy import Identity
 from typing import List
+from app.training_hall.models import TrainingHall
 
 class Training(Base):
     __tablename__ = "trainings"
@@ -11,6 +12,7 @@ class Training(Base):
     start_time: Mapped[DateTime] = mapped_column(DateTime)
     end_time: Mapped[DateTime] = mapped_column(DateTime)
     is_group_training: Mapped[Boolean] = mapped_column(Boolean)
+    training_halls: Mapped[List[TrainingHall]] = relationship("TrainingHall", back_populates="training")
 
     def __str__(self, training_id: int) -> str:
         return f"Training ID: {training_id}"

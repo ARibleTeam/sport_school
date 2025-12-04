@@ -6,5 +6,6 @@ class CoachSportType(Base):
     __tablename__ = "coach_sport_types"
     coach_id: Mapped[int] = mapped_column(ForeignKey("coaches.id"), primary_key=True)
     sport_type_id: Mapped[int] = mapped_column(ForeignKey("sport_types.id"), primary_key=True)
+    
     coach = relationship("Coach", back_populates="coach_sport_types")
     sport_type = relationship("SportType", back_populates="coaches")
