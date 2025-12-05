@@ -264,4 +264,70 @@ async def seed_athletes():
 
 @test_router.post("/groups", summary="Заполнение базы данных тестовыми данными о группах")
 async def seed_groups():
-    pass
+    async with async_session_maker() as session:
+        # 1. Проверка, существуют ли уже группы в базе
+        existing_groups_check = await session.execute(select(Group))
+        if existing_groups_check.scalars().first() is not None:
+            print("Тестовые данные о группах уже существуют в базе данных.")
+            return {"message": "Тестовые данные о группах уже существуют в базе данных."}
+
+        # 2. Получаем тренеров и атлетов, они нужны для создания связей
+        coaches_result = await session.execute(select(Coach))
+        coaches = coaches_result.scalars().all()
+        if not coaches or len(coaches) < 2:
+            raise HTTPException(status_code=400, detail="Недостаточно тренеров в базе (требуется минимум 2). Пожалуйста, сначала выполните заполнение данных о тренерах.")
+
+        athletes_result = await session.execute(select(Athlete))
+        athletes = athletes_result.scalars().all()
+        if not athletes or len(athletes) < 3:
+            raise HTTPException(status_code=400, detail="Недостаточно атлетов в базе (требуется минимум 3). Пожалуйста, сначала выполните заполнение данных об атлетах.")
+
+        # 3. Создаем словарь для удобного поиска тренеров по имени
+        coaches_map = {coach.full_name: coach for coach in coaches}
+
+        # 4. Определяем структуру тестовых данных для групп
+        groups_to_create = [
+            {
+                "name": "Утренняя группа по плаванию",
+                # Ищем тренера по имени для большей наглядности
+                "coach": coaches_map.get("Никитин Сергей Петрович"),
+                # Указываем, каких атлетов добавить в группу (берем из списка)
+                "athletes_to_assign": [athletes[0], athletes[1]]
+            },
+            {
+                "name": "Вечерняя группа по боксу",
+                "coach": coaches_map.get("Орлов Андрей Викторович"),
+                "athletes_to_assign": [athletes[2]]
+            },
+            {
+                "name": "Йога для начинающих",
+                "coach": coaches_map.get("Сидорова Екатерина Владимировна"),
+                "athletes_to_assign": [athletes[0], athletes[2]]
+            }
+        ]
+
+        # 5. Создаем группы и заполняем связи в цикле
+        for group_data in groups_to_create:
+            # Проверяем, что тренер для группы был найден
+            if not group_data["coach"]:
+                print(f"Внимание: Не удалось создать группу '{group_data['name']}', так как один из тренеров не найден в базе.")
+                continue
+
+            # Создаем экземпляр группы
+            new_group = Group(name=group_data["name"])
+
+            # SQLAlchemy автоматически заполнит таблицу group_coaches
+            # Мы просто добавляем объект тренера в список coaches группы
+            new_group.coaches.append(group_data["coach"])
+
+            # То же самое для атлетов - SQLAlchemy заполнит таблицу group_athletes
+            new_group.athletes.extend(group_data["athletes_to_assign"])
+            
+            # Добавляем готовую группу в сессию для последующего сохранения
+            session.add(new_group)
+
+        # Сохраняем все созданные группы и их связи в базе данных
+        await session.commit()
+        
+        print("Тестовые данные о группах успешно добавлены.")
+        return {"message": "Тестовые данные о группах успешно добавлены"}
