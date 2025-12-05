@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy import select
 from app.database import Base, async_session_maker
 from typing import List
+from app.athlete.models import Athlete
 
 # альтернативный, более простой способ создать отношение между таблицами.
 group_athletes = Table(
@@ -56,7 +57,7 @@ class Group(Base):
             return list(groups)
 
     @staticmethod
-    async def get_members(group_id: int) -> List['Athlete']:
+    async def get_members(group_id: int) -> List[Athlete]:
         """
         Статический метод для получения участников группы по ID группы.
         """

@@ -5,13 +5,12 @@ from sqlalchemy import select
 from app.database import Base, async_session_maker
 from typing import List
 from app.user.models import User
-from app.group.models import group_athletes
 
 class Athlete(User):
     __tablename__ = "athletes"
 
     id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), primary_key=True)
-    groups = relationship("Group", secondary=group_athletes, back_populates="athletes")
+    groups = relationship("Group", secondary='group_athletes', back_populates="athletes")
 
     def __str__(self) -> str:
         return f"Athlete(id={self.id}, full_name={self.full_name})"
