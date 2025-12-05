@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import async_session_maker
 from app.coach.schemas import CoachSchema
 from app.user.models import User
+from app.group.models import group_coaches
 
 class Coach(User):
     __tablename__ = "coaches"
@@ -18,6 +19,7 @@ class Coach(User):
     bio: Mapped[str] = mapped_column(String)
     
     coach_sport_types = relationship("CoachSportType", back_populates="coach")
+    groups = relationship("Group", secondary=group_coaches, back_populates="coaches")
 
     def __str__(self, coach_id: int) -> str:
         return f"Coach ID: {coach_id}"
