@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 class CoachSchema(BaseModel):
     id: int
@@ -14,12 +14,13 @@ class CoachSchema(BaseModel):
 
 class TrainingSchema(BaseModel):
     id: int
-    type: str
+    type: str  # 'individual' or 'group'
     title: str
     time: str
     location: str
     date: str
-    participants: int | None = None
+    coach: str
+    participants: Optional[int] = None
 
 class CoachResponseSchema(BaseModel):
     trainer: CoachSchema

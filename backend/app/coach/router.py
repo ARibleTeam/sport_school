@@ -35,6 +35,6 @@ async def get_coach(id: int, current_user: UserSchema = Depends(get_current_user
         )
 
         # TODO: Implement logic to get the schedule for the coach
-        schedule = []
+        schedule = await Coach.get_upcoming_trainings(coach.id)
 
         return CoachResponseSchema(trainer=coach_data, schedule=schedule)

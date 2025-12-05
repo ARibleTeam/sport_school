@@ -1,333 +1,200 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import async_session_maker
-from app.coach.models import Coach
-from app.user.schemas import UserSchema
-from app.middleware import get_current_user
-from sqlalchemy import select
-from app.specialization.models import SportType, CoachSportType  # Импортируем модели
+import random
+from datetime import datetime, timedelta
+from fastapi import APIRouter, HTTPException
+from sqlalchemy import select, text
+from sqlalchemy.orm import selectinload
+
+from app.database import async_session_maker, Base
+from app.config import settings
 from app.utils import get_password_hash
-from app.training.models import Training
-from datetime import date, datetime
-from app.hall.models import Hall
-from app.training_hall.models import TrainingHall
+
+# Импортируем все необходимые модели
+from app.coach.models import Coach
 from app.athlete.models import Athlete
 from app.user.models import User
 from app.group.models import Group
+from app.training.models import Training
+from app.hall.models import Hall
+from app.specialization.models import SportType, CoachSportType
+from app.training_hall.models import TrainingHall
 
 
-test_router = APIRouter(prefix="/tests", tags=["СОЗДАТЬ ТЕСТОВЫЕ ДАННЫЕ"])
+test_router = APIRouter(prefix="/tests", tags=["ТЕСТОВЫЕ ДАННЫЕ"])
 
-@test_router.post("/coaches", summary="Заполнение базы данных тестовыми данными о тренерах")
-async def seed_coaches():
+# --- Данные для генерации ---
+
+MALE_NAMES = ["Александр", "Дмитрий", "Максим", "Сергей", "Андрей", "Алексей", "Артем", "Илья", "Кирилл", "Михаил"]
+FEMALE_NAMES = ["Анастасия", "Мария", "Анна", "Дарья", "Екатерина", "Полина", "Виктория", "Елизавета", "Александра", "София"]
+SURNAMES = ["Иванов", "Смирнов", "Кузнецов", "Попов", "Васильев", "Петров", "Соколов", "Михайлов", "Новиков", "Федоров"]
+
+def generate_full_name(used_names_set):
+    """Генерирует уникальное ФИО и добавляет его в set."""
+    while True:
+        is_male = random.choice([True, False])
+        surname = random.choice(SURNAMES)
+        if not is_male:
+            surname += "а"
+        
+        name = f"{surname} {random.choice(MALE_NAMES if is_male else FEMALE_NAMES)}"
+        
+        if name not in used_names_set:
+            used_names_set.add(name)
+            return name
+
+# --- Эндпоинты ---
+
+@test_router.post("/seed", summary="Создать полный набор тестовых данных")
+async def seed_database():
+    """
+    Создает полный набор логически связанных данных: типы спорта, залы, 7 тренеров,
+    30 атлетов, 4 группы и по 5 тренировок для каждой группы.
+    Если данные уже существуют, операция будет отменена.
+    """
     async with async_session_maker() as session:
-        # Флаги для отслеживания, какие данные нужно добавить
-        add_sport_types = False
-        add_coaches = False
-        add_coach_sport_types = False
+        # 1. Проверка: Если данные уже есть, отменяем операцию
+        check_coaches = await session.execute(select(Coach))
+        if check_coaches.scalars().first():
+            raise HTTPException(status_code=409, detail="Данные уже существуют. Сначала очистите базу данных через /tests/clear.")
 
-        # Проверяем, есть ли уже типы спорта в базе данных
-        existing_sport_types = await session.execute(select(SportType))
-        if existing_sport_types.scalars().first() is None:
-            add_sport_types = True
-            print("Типов спорта нет в базе данных, добавляем...")
-        else:
-            print("Типы спорта уже существуют в базе данных.")
+        print("--- Начало создания тестовых данных ---")
+        
+        # 2. Создание базовых данных: Типы спорта
+        print("Создание типов спорта...")
+        sport_types_data = [
+            {"name": "Плавание", "description": "Отработка техники плавания."},
+            {"name": "Бокс", "description": "Освоение ударной техники."},
+            {"name": "Йога", "description": "Практика асан и медитации."},
+            {"name": "Кроссфит", "description": "Высокоинтенсивные функциональные тренировки."},
+            {"name": "Тяжелая атлетика", "description": "Работа со штангой."},
+            {"name": "Борьба", "description": "Изучение техник единоборств."},
+        ]
+        sport_types = [SportType(**data) for data in sport_types_data]
+        session.add_all(sport_types)
+        await session.flush()
+        sport_types_map = {st.name: st for st in sport_types}
+        print("Типы спорта созданы.")
 
-        # Проверяем, есть ли уже тренеры в базе данных
-        existing_coaches = await session.execute(select(Coach))
-        if existing_coaches.scalars().first() is None:
-            add_coaches = True
-            print("Тренеров нет в базе данных, добавляем...")
-        else:
-            print("Тренеры уже существуют в базе данных.")
+        # 3. Создание базовых данных: Залы
+        print("Создание залов...")
+        halls_data = [
+            {"name": "Бассейн 1", "capacity": 30},
+            {"name": "Зал бокса", "capacity": 20},
+            {"name": "Кроссфит зона", "capacity": 40},
+            {"name": "Зал для йоги (№2)", "capacity": 50},
+        ]
+        halls = [Hall(**data) for data in halls_data]
+        session.add_all(halls)
+        await session.flush()
+        halls_map = {h.name: h for h in halls}
+        print("Залы созданы.")
 
-        # Проверяем, есть ли уже CoachSportType в базе данных
-        existing_coach_sport_types = await session.execute(select(CoachSportType))
-        if existing_coach_sport_types.scalars().first() is None:
-            add_coach_sport_types = True
-            print("CoachSportType нет в базе данных, добавляем...")
-        else:
-            print("CoachSportType уже существуют в базе данных.")
+        used_names = set()
 
-        # Создаем данные для SportType, если нужно
-        sport_types_data = []
-        if add_sport_types:
-            sport_types_data = [
-                {"name": "Плавание", "description": "Отработка техники плавания, развитие выносливости и укрепление всех групп мышц. Занятия для разных возрастных групп и уровней подготовки"},
-                {"name": "Борьба", "description": "Изучение техник единоборств, развитие силы, ловкости и координации. Тренировки включают работу в партере и стойке"},
-                {"name": "Легкая атлетика", "description": "Развитие скорости, выносливости и координации. Беговые дисциплины, прыжки, метания"},
-                {"name": "Тяжелая атлетика", "description": "Совершенствование техники выполнения упражнений со штангой. Развитие взрывной силы и мышечной массы"},
-                {"name": "Гимнастика", "description": "Развитие гибкости, силы и координации. Спортивная и художественная гимнастика для детей и взрослых"},
-                {"name": "Теннис", "description": "Обучение технике ударов, тактике игры. Индивидуальные и групповые занятия на корте"},
-                {"name": "Баскетбол", "description": "Командные тренировки, отработка бросков, дриблинга и тактических комбинаций"},
-                {"name": "Футбол", "description": "Техника владения мячом, тактические построения, командная игра. Занятия для разных возрастных групп"},
-                {"name": "Волейбол", "description": "Обучение технике подач, пасов и атакующих ударов. Командные и индивидуальные тренировки"},
-                {"name": "Бокс", "description": "Освоение ударной техники, работа над скоростью и реакцией. Тренировки на снарядах и в спаррингах"},
-                {"name": "Йога", "description": "Практика асан, дыхательных упражнений и медитации. Улучшение гибкости и снятие стресса"},
-                {"name": "Кроссфит", "description": "Высокоинтенсивные функциональные тренировки, развивающие все физические качества"},
-                {"name": "Стретчинг", "description": "Упражнения на развитие гибкости и мобильности суставов. Подходит для любого уровня подготовки"},
-                {"name": "Аэробика", "description": "Кардиотренировки под музыку, направленные на развитие выносливости и снижение веса"},
-                {"name": "Скалолазание", "description": "Техника лазания, развитие силы хвата и координации. Тренировки на искусственном рельефе"},
-                {"name": "Бодибилдинг", "description": "Набор мышечной массы и формирование пропорционального тела."}
-            ]
-
-        for sport_type_data in sport_types_data:
-            sport_type = SportType(**sport_type_data)
-            session.add(sport_type)
-        await session.flush() # Flush чтобы получить id sport_type
-        print("Sport types added")
-
-        # Создаем данные для Coach, если нужно
-        coaches_data = []
-        if add_coaches:
-            coaches_data = [
-                {"experience_years": 8, "bio": "Специалист по функциональному тренингу и коррекции осанки", "full_name": "Иванова Анна Сергеевна", "password_hash": get_password_hash("password"), "phone_number": "+79991112233", "email": "ivanova@example.com"},
-                {"experience_years": 15, "bio": "Мастер-тренер по бодибилдингу, чемпион региона", "full_name": "Петров Дмитрий Игоревич", "password_hash": get_password_hash("password"), "phone_number": "+79991112234", "email": "petrov@example.com"},
-                {"experience_years": 5, "bio": "Эксперт по йоге и пилатесу для восстановления", "full_name": "Сидорова Екатерина Владимировна", "password_hash": get_password_hash("password"), "phone_number": "+79991112235", "email": "sidorova@example.com"},
-                {"experience_years": 20, "bio": "Ветеран фитнес-индустрии, специалист по реабилитации", "full_name": "Козлов Александр Николаевич", "password_hash": get_password_hash("password"), "phone_number": "+79991112236", "email": "kozlov@example.com"},
-                {"experience_years": 3, "bio": "Молодой специалист по кроссфиту и HIIT тренировкам", "full_name": "Морозова Ольга Дмитриевна", "password_hash": get_password_hash("password"), "phone_number": "+79991112237", "email": "morozova@example.com"},
-                {"experience_years": 10, "bio": "Сертифицированный тренер по плаванию и аквааэробике", "full_name": "Никитин Сергей Петрович", "password_hash": get_password_hash("password"), "phone_number": "+79991112238", "email": "nikitin@example.com"},
-                {"experience_years": 7, "bio": "Специалист по питанию и силовым тренировкам для женщин", "full_name": "Волкова Марина Алексеевна", "password_hash": get_password_hash("password"), "phone_number": "+79991112239", "email": "volkova@example.com"},
-                {"experience_years": 12, "bio": "Эксперт по боевым искусствам и самообороне", "full_name": "Орлов Андрей Викторович", "password_hash": get_password_hash("password"), "phone_number": "+79991112240", "email": "orlov@example.com"},
-                {"experience_years": 6, "bio": "Тренер по стретчингу и мобильности суставов", "full_name": "Лебедева Ирина Олеговна", "password_hash": get_password_hash("password"), "phone_number": "+79991112241", "email": "lebedeva@example.com"},
-                {"experience_years": 9, "bio": "Специалист по тренировкам для старшего возраста", "full_name": "Семенов Павел Геннадьевич", "password_hash": get_password_hash("password"), "phone_number": "+79991112242", "email": "semenov@example.com"},
-            ]
-            
-        for coach_data in coaches_data:
-            coach = Coach(**coach_data)
-            session.add(coach)
-        await session.flush() # Flush чтобы получить id coach
-        print("Coaches added")
-        await session.commit()
-
-        # Создаем связи между тренерами и типами спорта, если нужно
-        if add_coach_sport_types:
-            #  Создаем связи между тренерами и типами спорта
-            #  Здесь нужно указать, какие специализации у каких тренеров
-
-            # Получаем id SportType
-            sport_types = await session.execute(select(SportType))
-            sport_types_dict = {sport_type.name: sport_type.id for sport_type in sport_types.scalars().all()}
-            print(f"sport_types_dict: {sport_types_dict}")
-
-            # Связываем тренеров со специализациями
-            #  Предполагаем что  Иванова Анна Сергеевна - Плавание, Йога
-            #  Петров Дмитрий Игоревич - Бодибилдинг
-            #  Сидорова Екатерина Владимировна - Йога, Стретчинг
-            #  Козлов Александр Николаевич - Стретчинг, Йога
-            #  Морозова Ольга Дмитриевна - Кроссфит, Аэробика
-            #  Никитин Сергей Петрович - Плавание
-            #  Волкова Марина Алексеевна - Тяжелая атлетика
-            #  Орлов Андрей Викторович - Бокс, Борьба
-            #  Лебедева Ирина Олеговна - Стретчинг, Йога
-            #  Семенов Павел Геннадьевич - Йога
-
-            coach_specializations = {
-                "Иванова Анна Сергеевна": ["Плавание", "Йога"],
-                "Петров Дмитрий Игоревич": ["Бодибилдинг"],
-                "Сидорова Екатерина Владимировна": ["Йога", "Стретчинг"],
-                "Козлов Александр Николаевич": ["Стретчинг", "Йога"],
-                "Морозова Ольга Дмитриевна": ["Кроссфит", "Аэробика"],
-                "Никитин Сергей Петрович": ["Плавание"],
-                "Волкова Марина Алексеевна": ["Тяжелая атлетика"],
-                "Орлов Андрей Викторович": ["Бокс", "Борьба"],
-                "Лебедева Ирина Олеговна": ["Стретчинг", "Йога"],
-                "Семенов Павел Геннадьевич": ["Йога"],
-            }
-
-            coaches = await session.execute(select(Coach))
-            coaches_dict = {coach.full_name: coach.id for coach in coaches.scalars().all()}
-            print(f"coaches_dict: {coaches_dict}")
-
-            for coach_name, specialization_names in coach_specializations.items():
-                coach_id = next((coach_id for coach_name_temp, coach_id in coaches_dict.items() if coach_name_temp == coach_name), None)
-                print(f"coach_name: {coach_name}, coach_id: {coach_id}")
-                if coach_id:
-                    for specialization_name in specialization_names:
-                        sport_type_id = sport_types_dict.get(specialization_name)
-                        print(f"specialization_name: {specialization_name}, sport_type_id: {sport_type_id}")
-                        if sport_type_id:
-                            coach_sport_type = CoachSportType(coach_id=coach_id, sport_type_id=sport_type_id)
-                            session.add(coach_sport_type)
-            await session.commit()
-            print("Coach sport types added")
-        else:
-            print("Coach sport types already exist, skipping...")
-
-    return {"message": "Тестовые данные успешно добавлены"}
-
-
-@test_router.post("/halls_and_trainings", summary="Заполнение базы данных тестовыми данными о залах и тренировках, и связях между ними")
-async def seed_halls_and_trainings():
-    async with async_session_maker() as session:
-        # Проверяем, есть ли уже залы в базе данных
-        existing_halls = await session.execute(select(Hall))
-        if existing_halls.scalars().first() is not None:
-            print("Тестовые данные о залах уже существуют в базе данных.")
-            #return {"message": "Тестовые данные о залах уже существуют в базе данных."} # Don't return, just skip hall creation
-            add_halls = False
-        else:
-            add_halls = True
-
-        # Проверяем, есть ли уже тренировки в базе данных
-        existing_trainings = await session.execute(select(Training))
-        if existing_trainings.scalars().first() is not None:
-            print("Тестовые данные о тренировках уже существуют в базе данных.")
-            #return {"message": "Тестовые данные о тренировках уже существуют в базе данных."} # Don't return, just skip training creation
-            add_trainings = False
-        else:
-            add_trainings = True
-
-        halls_data = []
-        if add_halls:
-             halls_data = [
-                {"name": "Зал бокса", "capacity": 20},
-                {"name": "Бассейн 1", "capacity": 30},
-                {"name": "Зал №2", "capacity": 50},
-                {"name": "Кроссфит зона", "capacity": 40},
-            ]
-
-        halls = []
-        for hall_data in halls_data:
-            hall = Hall(**hall_data)
-            session.add(hall)
-            halls.append(hall)
+        # 4. Создание Тренеров (7)
+        print("Создание тренеров...")
+        coaches = []
+        for _ in range(7):
+            coaches.append(Coach(
+                full_name=generate_full_name(used_names),
+                email=f"coach.{len(used_names)}@school.com",
+                password_hash=get_password_hash("password"),
+                phone_number=f"+7999{random.randint(1000000, 9999999)}",
+                experience_years=random.randint(2, 15),
+                bio="Опытный специалист, нацеленный на результат."
+            ))
+        session.add_all(coaches)
         await session.flush()
 
-        trainings_data = []
-        if add_trainings:
-            # Создаем тестовые данные для тренировок
-            #{"type": "individual", "title": "Анализ техники плавания", "coach_id": coaches[0].id, "time": "09:00 - 10:30", "location": "Бассейн 1", "date": date(2024, 5, 25), "participants": None},
-            trainings_data = [
-                {"start_time": datetime(2024, 5, 25, 9, 0), "end_time": datetime(2024, 5, 25, 10, 30), "is_group_training": False},
-                {"start_time": datetime(2024, 5, 25, 11, 0), "end_time": datetime(2024, 5, 25, 12, 30), "is_group_training": True},
-                {"start_time": datetime(2024, 5, 26, 14, 0), "end_time": datetime(2024, 5, 26, 15, 0), "is_group_training": False},
-                {"start_time": datetime(2024, 5, 26, 16, 0), "end_time": datetime(2024, 5, 26, 17, 30), "is_group_training": True},
-            ]
-            
-        trainings = []
-        for training_data in trainings_data:
-            training = Training(**training_data)
-            session.add(training)
-            trainings.append(training)
-        await session.flush()
+        # 4.1. Назначение специализаций тренерам
+        required_specs = ["Плавание", "Бокс", "Кроссфит", "Йога"]
+        for i, spec_name in enumerate(required_specs):
+            session.add(CoachSportType(coach_id=coaches[i].id, sport_type_id=sport_types_map[spec_name].id))
+        
+        for coach in coaches[len(required_specs):]:
+            spec = random.choice(sport_types)
+            session.add(CoachSportType(coach_id=coach.id, sport_type_id=spec.id))
+        print("Тренеры и их специализации созданы.")
+        
+        # 5. Создание Атлетов (30)
+        print("Создание атлетов...")
+        athletes = []
+        for _ in range(30):
+            athletes.append(Athlete(
+                full_name=generate_full_name(used_names),
+                email=f"athlete.{len(used_names)}@school.com",
+                password_hash=get_password_hash("password"),
+                phone_number=f"+7900{random.randint(1000000, 9999999)}",
+            ))
+        session.add_all(athletes)
+        print("Атлеты созданы.")
+        
+        await session.commit() # Сохраняем все созданные сущности
 
-        training_halls_data = []
-
-        # Create the relationships between trainings and halls
-        if add_trainings and add_halls:
-            training_halls_data = [
-                {"training_id": trainings[0].id, "hall_id": halls[1].id}, # Swimming analysis in Pool 1
-                {"training_id": trainings[1].id, "hall_id": halls[2].id}, # OFP in Hall 2
-                {"training_id": trainings[2].id, "hall_id": halls[0].id}, # Boxing in Boxing hall
-                {"training_id": trainings[3].id, "hall_id": halls[3].id}, # Functional training in CrossFit zone
-            ]
-
-        for training_hall_data in training_halls_data:
-            training_hall = TrainingHall(**training_hall_data)
-            session.add(training_hall)
-
-        await session.commit()
-        print("Тестовые данные о залах и тренировках успешно добавлены")
-        return {"message": "Тестовые данные о залах и тренировках успешно добавлены"}
-
-
-@test_router.post("/athletes", summary="Заполнение базы данных тестовыми данными об атлетах")
-async def seed_athletes():
-    async with async_session_maker() as session:
-        # Проверяем, есть ли уже атлеты в базе данных
-        existing_athletes = await session.execute(select(Athlete))
-        if existing_athletes.scalars().first() is not None:
-            print("Тестовые данные об атлетах уже существуют в базе данных.")
-            return {"message": "Тестовые данные об атлетах уже существуют в базе данных."}
-
-        athletes_data = [
-            {"full_name": "Иван Иванов", "phone_number": "+79001234567", "email": "ivan@example.com", "password_hash": get_password_hash("password")},
-            {"full_name": "Петр Петров", "phone_number": "+79001234568", "email": "petr@example.com", "password_hash": get_password_hash("password")},
-            {"full_name": "Сидор Сидоров", "phone_number": "+79001234569", "email": "sidor@example.com", "password_hash": get_password_hash("password")},
+        # 6. Создание Групп (4) и их наполнение
+        print("Создание групп и распределение участников...")
+        group_defs = [
+            {"name": "Пловцы-Юниоры", "sport": "Плавание", "hall_pref": "Бассейн 1", "coach_idx": 0},
+            {"name": "Боксеры-Новички", "sport": "Бокс", "hall_pref": "Зал бокса", "coach_idx": 1},
+            {"name": "Энергия-Кроссфит", "sport": "Кроссфит", "hall_pref": "Кроссфит зона", "coach_idx": 2},
+            {"name": "Утренняя Йога", "sport": "Йога", "hall_pref": "Зал для йоги (№2)", "coach_idx": 3},
         ]
-
-        for athlete_data in athletes_data:
-            athlete = Athlete(
-                full_name=athlete_data["full_name"],
-                phone_number=athlete_data["phone_number"],
-                email=athlete_data["email"],
-                password_hash=athlete_data["password_hash"],
-            )
-            session.add(athlete)
-
-        await session.commit()
-        print("Тестовые данные об атлетах успешно добавлены")
-        return {"message": "Тестовые данные об атлетах успешно добавлены"}
-
-
-@test_router.post("/groups", summary="Заполнение базы данных тестовыми данными о группах")
-async def seed_groups():
-    async with async_session_maker() as session:
-        # 1. Проверка, существуют ли уже группы в базе
-        existing_groups_check = await session.execute(select(Group))
-        if existing_groups_check.scalars().first() is not None:
-            print("Тестовые данные о группах уже существуют в базе данных.")
-            return {"message": "Тестовые данные о группах уже существуют в базе данных."}
-
-        # 2. Получаем тренеров и атлетов, они нужны для создания связей
-        coaches_result = await session.execute(select(Coach))
-        coaches = coaches_result.scalars().all()
-        if not coaches or len(coaches) < 2:
-            raise HTTPException(status_code=400, detail="Недостаточно тренеров в базе (требуется минимум 2). Пожалуйста, сначала выполните заполнение данных о тренерах.")
-
-        athletes_result = await session.execute(select(Athlete))
-        athletes = athletes_result.scalars().all()
-        if not athletes or len(athletes) < 3:
-            raise HTTPException(status_code=400, detail="Недостаточно атлетов в базе (требуется минимум 3). Пожалуйста, сначала выполните заполнение данных об атлетах.")
-
-        # 3. Создаем словарь для удобного поиска тренеров по имени
-        coaches_map = {coach.full_name: coach for coach in coaches}
-
-        # 4. Определяем структуру тестовых данных для групп
-        groups_to_create = [
-            {
-                "name": "Утренняя группа по плаванию",
-                # Ищем тренера по имени для большей наглядности
-                "coach": coaches_map.get("Никитин Сергей Петрович"),
-                # Указываем, каких атлетов добавить в группу (берем из списка)
-                "athletes_to_assign": [athletes[0], athletes[1]]
-            },
-            {
-                "name": "Вечерняя группа по боксу",
-                "coach": coaches_map.get("Орлов Андрей Викторович"),
-                "athletes_to_assign": [athletes[2]]
-            },
-            {
-                "name": "Йога для начинающих",
-                "coach": coaches_map.get("Сидорова Екатерина Владимировна"),
-                "athletes_to_assign": [athletes[0], athletes[2]]
-            }
-        ]
-
-        # 5. Создаем группы и заполняем связи в цикле
-        for group_data in groups_to_create:
-            # Проверяем, что тренер для группы был найден
-            if not group_data["coach"]:
-                print(f"Внимание: Не удалось создать группу '{group_data['name']}', так как один из тренеров не найден в базе.")
-                continue
-
-            # Создаем экземпляр группы
-            new_group = Group(name=group_data["name"])
-
-            # SQLAlchemy автоматически заполнит таблицу group_coaches
-            # Мы просто добавляем объект тренера в список coaches группы
-            new_group.coaches.append(group_data["coach"])
-
-            # То же самое для атлетов - SQLAlchemy заполнит таблицу group_athletes
-            new_group.athletes.extend(group_data["athletes_to_assign"])
+        
+        for i, group_def in enumerate(group_defs):
+            group = Group(name=group_def["name"])
+            group.coaches.append(coaches[group_def["coach_idx"]])
             
-            # Добавляем готовую группу в сессию для последующего сохранения
-            session.add(new_group)
+            # Распределяем атлетов по группам
+            start_idx = i * 7
+            group.athletes.extend(athletes[start_idx : start_idx + 7])
+            session.add(group)
+            
+            # 7. Создание Тренировок для каждой группы (по 5)
+            await session.flush() # Получаем ID группы
+            
+            hall = halls_map[group_def["hall_pref"]]
+            for j in range(5):
+                day = random.randint(1, 7)
+                hour = random.choice([9, 11, 14, 16, 18])
+                start = datetime.now().replace(hour=hour, minute=0, second=0) + timedelta(days=day)
+                
+                training = Training(
+                    start_time=start,
+                    end_time=start + timedelta(hours=1, minutes=30),
+                    is_group_training=(j < 4) # 4 групповых, 1 индивидуальная
+                )
+                training.groups.append(group)
+                session.add(training)
+                await session.flush() # Получаем ID тренировки
+                session.add(TrainingHall(training_id=training.id, hall_id=hall.id))
+        
+        print("Группы и тренировки созданы.")
+        
+        await session.commit()
+        print("--- Все тестовые данные успешно созданы! ---")
 
-        # Сохраняем все созданные группы и их связи в базе данных
+    return {"message": "Полный набор тестовых данных успешно создан!"}
+
+
+@test_router.post("/clear", summary="ПОЛНАЯ ОЧИСТКА ВСЕХ ДАННЫХ")
+async def clear_database():
+    """
+    Удаляет все данные из всех таблиц и сбрасывает счетчики ID.
+    КРАЙНЕ ОПАСНО! Работает только если в .env файле DEBUG=True.
+    """
+    if not settings.DEBUG:
+        raise HTTPException(status_code=403, detail="Очистка базы данных разрешена только в режиме отладки.")
+
+    async with async_session_maker() as session:
+        table_names = [table.name for table in reversed(Base.metadata.sorted_tables)]
+        if not table_names:
+            return {"message": "Не найдено таблиц для очистки."}
+
+        # Выполняем единый SQL-запрос для быстрой очистки
+        query = text(f'TRUNCATE TABLE {", ".join(table_names)} RESTART IDENTITY CASCADE;')
+        
+        await session.execute(query)
         await session.commit()
         
-        print("Тестовые данные о группах успешно добавлены.")
-        return {"message": "Тестовые данные о группах успешно добавлены"}
+        print(f"База данных успешно очищена. Таблицы: {table_names}")
+
+    return {"message": "База данных успешно очищена."}

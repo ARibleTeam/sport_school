@@ -5,7 +5,7 @@ from app.database import Base, async_session_maker
 from typing import List
 from app.athlete.models import Athlete
 
-# альтернативный, более простой способ создать отношение между таблицами.
+# Существующая ассоциативная таблица
 group_athletes = Table(
     "group_athletes",
     Base.metadata,
@@ -13,11 +13,20 @@ group_athletes = Table(
     Column("athlete_id", ForeignKey("athletes.id"), primary_key=True),
 )
 
+# Существующая ассоциативная таблица
 group_coaches = Table(
     "group_coaches",
     Base.metadata,
     Column("group_id", ForeignKey("groups.id"), primary_key=True),
     Column("coach_id", ForeignKey("coaches.id"), primary_key=True),
+)
+
+# АССОЦИАТИВНАЯ ТАБЛИЦА для связи тренировок и групп
+training_groups = Table(
+    "training_groups",
+    Base.metadata,
+    Column("training_id", ForeignKey("trainings.id"), primary_key=True),
+    Column("group_id", ForeignKey("groups.id"), primary_key=True),
 )
 
 class Group(Base):
@@ -28,6 +37,7 @@ class Group(Base):
     
     athletes = relationship("Athlete", secondary=group_athletes, back_populates="groups")
     coaches = relationship("Coach", secondary=group_coaches, back_populates="groups")
+    trainings = relationship("Training", secondary=training_groups, back_populates="groups")
 
     def __str__(self):
             return f"Group '{self.name}' (id={self.id})"
@@ -68,10 +78,39 @@ class Group(Base):
             return list(athletes)
 
     @staticmethod
-    async def get_schedule(athlete_id: int) -> str:
+    async def get_schedule(athlete_id: int) -> List[dict]:
         """
-        Статический метод для получения расписания по ID атлета.
+        Главный метод-оркестратор для получения расписания атлета.
+        Реализован в соответствии с диаграммой последовательности.
         """
-        # TODO: Implement logic to get the schedule for the athlete
-        print(f"Получение расписания для атлета с ID: {athlete_id}")
-        return "{}"
+        from app.training.models import Training
+        from app.coach.models import Coach
+
+        all_trainings = []
+
+        # 1. Находим все группы, в которых состоит атлет
+        async with async_session_maker() as session:
+            groups_query = select(Group).join(group_athletes).where(group_athletes.c.athlete_id == athlete_id)
+            groups_result = await session.execute(groups_query)
+            groups = groups_result.scalars().all()
+
+        # 2. Для каждой группы собираем полное расписание
+        for group in groups:
+            # 2.1 Получаем "сырое" расписание (без имени тренера)
+            group_trainings = await Training.get_upcoming(group.id)
+
+            # 2.2 Получаем ID тренера и его имя
+            coach_id = await Coach.get_coach_id(group.id)
+            coach_name = "Тренер не назначен"
+            if coach_id:
+                coach_name = await Coach.get_full_name(coach_id)
+            
+            # 2.3 Обогащаем каждую тренировку именем тренера
+            for training in group_trainings:
+                training["coach"] = coach_name
+            
+            all_trainings.extend(group_trainings)
+        
+        # 3. Сортируем итоговое расписание и возвращаем
+        all_trainings.sort(key=lambda x: (x['date'], x['time']))
+        return all_trainings
