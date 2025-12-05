@@ -11,6 +11,10 @@ from app.training.models import Training
 from datetime import date, datetime
 from app.hall.models import Hall
 from app.training_hall.models import TrainingHall
+from app.athlete.models import Athlete
+from app.user.models import User
+from app.group.models import Group
+
 
 test_router = APIRouter(prefix="/tests", tags=["СОЗДАТЬ ТЕСТОВЫЕ ДАННЫЕ"])
 
@@ -89,7 +93,7 @@ async def seed_coaches():
                 {"experience_years": 6, "bio": "Тренер по стретчингу и мобильности суставов", "full_name": "Лебедева Ирина Олеговна", "password_hash": get_password_hash("password"), "phone_number": "+79991112241", "email": "lebedeva@example.com"},
                 {"experience_years": 9, "bio": "Специалист по тренировкам для старшего возраста", "full_name": "Семенов Павел Геннадьевич", "password_hash": get_password_hash("password"), "phone_number": "+79991112242", "email": "semenov@example.com"},
             ]
-
+            
         for coach_data in coaches_data:
             coach = Coach(**coach_data)
             session.add(coach)
@@ -129,7 +133,7 @@ async def seed_coaches():
                 "Волкова Марина Алексеевна": ["Тяжелая атлетика"],
                 "Орлов Андрей Викторович": ["Бокс", "Борьба"],
                 "Лебедева Ирина Олеговна": ["Стретчинг", "Йога"],
-                "Семенов Павел Геннадьевич": ["Йога"]
+                "Семенов Павел Геннадьевич": ["Йога"],
             }
 
             coaches = await session.execute(select(Coach))
@@ -152,6 +156,7 @@ async def seed_coaches():
             print("Coach sport types already exist, skipping...")
 
     return {"message": "Тестовые данные успешно добавлены"}
+
 
 @test_router.post("/halls_and_trainings", summary="Заполнение базы данных тестовыми данными о залах и тренировках, и связях между ними")
 async def seed_halls_and_trainings():
@@ -200,7 +205,7 @@ async def seed_halls_and_trainings():
                 {"start_time": datetime(2024, 5, 26, 14, 0), "end_time": datetime(2024, 5, 26, 15, 0), "is_group_training": False},
                 {"start_time": datetime(2024, 5, 26, 16, 0), "end_time": datetime(2024, 5, 26, 17, 30), "is_group_training": True},
             ]
-
+            
         trainings = []
         for training_data in trainings_data:
             training = Training(**training_data)
@@ -226,3 +231,37 @@ async def seed_halls_and_trainings():
         await session.commit()
         print("Тестовые данные о залах и тренировках успешно добавлены")
         return {"message": "Тестовые данные о залах и тренировках успешно добавлены"}
+
+
+@test_router.post("/athletes", summary="Заполнение базы данных тестовыми данными об атлетах")
+async def seed_athletes():
+    async with async_session_maker() as session:
+        # Проверяем, есть ли уже атлеты в базе данных
+        existing_athletes = await session.execute(select(Athlete))
+        if existing_athletes.scalars().first() is not None:
+            print("Тестовые данные об атлетах уже существуют в базе данных.")
+            return {"message": "Тестовые данные об атлетах уже существуют в базе данных."}
+
+        athletes_data = [
+            {"full_name": "Иван Иванов", "phone_number": "+79001234567", "email": "ivan@example.com", "password_hash": get_password_hash("password")},
+            {"full_name": "Петр Петров", "phone_number": "+79001234568", "email": "petr@example.com", "password_hash": get_password_hash("password")},
+            {"full_name": "Сидор Сидоров", "phone_number": "+79001234569", "email": "sidor@example.com", "password_hash": get_password_hash("password")},
+        ]
+
+        for athlete_data in athletes_data:
+            athlete = Athlete(
+                full_name=athlete_data["full_name"],
+                phone_number=athlete_data["phone_number"],
+                email=athlete_data["email"],
+                password_hash=athlete_data["password_hash"],
+            )
+            session.add(athlete)
+
+        await session.commit()
+        print("Тестовые данные об атлетах успешно добавлены")
+        return {"message": "Тестовые данные об атлетах успешно добавлены"}
+
+
+@test_router.post("/groups", summary="Заполнение базы данных тестовыми данными о группах")
+async def seed_groups():
+    pass
