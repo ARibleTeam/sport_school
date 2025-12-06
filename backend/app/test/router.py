@@ -1,5 +1,5 @@
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
@@ -90,35 +90,103 @@ async def seed_database():
 
         used_names = set()
 
-        # 4. Создание Тренеров (7)
-        print("Создание тренеров...")
-        coaches = []
-        for _ in range(7):
-            coaches.append(Coach(
-                full_name=generate_full_name(used_names),
-                email=f"coach.{len(used_names)}@school.com",
-                password_hash=get_password_hash("password"),
-                phone_number=f"+7999{random.randint(1000000, 9999999)}",
-                experience_years=random.randint(2, 15),
-                bio="Опытный специалист, нацеленный на результат."
-            ))
-        session.add_all(coaches)
-        await session.flush()
+        # 4. Создание уникальных тренеров
+        print("Создание уникальных тренеров...")
 
-        # 4.1. Назначение специализаций тренерам
-        required_specs = ["Плавание", "Бокс", "Кроссфит", "Йога"]
-        for i, spec_name in enumerate(required_specs):
-            session.add(CoachSportType(coach_id=coaches[i].id, sport_type_id=sport_types_map[spec_name].id))
-        
-        for coach in coaches[len(required_specs):]:
-            spec = random.choice(sport_types)
-            session.add(CoachSportType(coach_id=coach.id, sport_type_id=spec.id))
-        print("Тренеры и их специализации созданы.")
+        # Список с данными для каждого тренера
+        coaches_data = [
+            {
+                "full_name": "Иван Петрович Сергеев",
+                "email": "ivan.sergeev@school.com",
+                "experience": 25,
+                "bio": "Заслуженный тренер по плаванию. Воспитал не одно поколение чемпионов. Подход строгий, но справедливый. Главное — дисциплина и полная самоотдача.",
+                "specializations": ["Плавание"]
+            },
+            {
+                "full_name": "Артем Сидоров",
+                "email": "artem.sidorov@school.com",
+                "experience": 10,
+                "bio": "Бывший профессиональный боксер, призер международных соревнований. Ставлю ударную технику и учу думать на ринге. Мои ученики — моя гордость.",
+                "specializations": ["Бокс"]
+            },
+            {
+                "full_name": "Елена Воробьева",
+                "email": "elena.vorobyova@school.com",
+                "experience": 8,
+                "bio": "Сертифицированный CrossFit Level 3 тренер. Верю, что нет предела человеческим возможностям. Создаю дружелюбную атмосферу, где каждый сможет превзойти себя.",
+                "specializations": ["Кроссфит", "Функциональный тренинг"]
+            },
+            {
+                "full_name": "Анастасия Лазарева",
+                "email": "anastasia.lazareva@school.com",
+                "experience": 12,
+                "bio": "Практикую йогу более 15 лет. Помогу вам найти гармонию между телом и разумом, развить гибкость и снять стресс. Мои занятия — это путешествие внутрь себя.",
+                "specializations": ["Йога", "Пилатес"]
+            },
+            {
+                "full_name": "Антон Медоедов",
+                "email": "anton.medoedov.@school.com",
+                "experience": 20,
+                "bio": "Мастер спорта по тяжелой атлетике. Знаю все о работе с железом. Помогу набрать массу, увеличить силовые показатели и построить тело мечты. Без лишних слов, только хардкор.",
+                "specializations": ["Тяжелая атлетика"]
+            }
+        ]
+
+        # Создаем экземпляры класса Coach и добавляем в сессию
+        coaches = []
+        for data in coaches_data:
+            # Убедимся, что это имя еще не использовалось
+            if data["full_name"] not in used_names:
+                coach = Coach(
+                    full_name=data["full_name"],
+                    email=data["email"],
+                    password_hash=get_password_hash("password"),
+                    phone_number=f"+7999{random.randint(1000000, 9999999)}",
+                    experience_years=data["experience"],
+                    bio=data["bio"]
+                )
+                coaches.append(coach)
+                used_names.add(data["full_name"])
+
+        session.add_all(coaches)
+        await session.flush()  # Получаем ID для созданных тренеров
+
+        # Создаем связи между тренерами и их специализациями
+        coach_links = []
+        # Создадим словарь для быстрого поиска тренера по имени
+        coaches_map = {coach.full_name: coach for coach in coaches}
+
+        for data in coaches_data:
+            coach = coaches_map.get(data["full_name"])
+            if coach:
+                for spec_name in data["specializations"]:
+                    sport_type = sport_types_map.get(spec_name)
+                    if sport_type:
+                        coach_links.append(
+                            CoachSportType(coach_id=coach.id, sport_type_id=sport_type.id)
+                        )
+
+        session.add_all(coach_links)
+        print("7 уникальных тренеров и их специализации созданы.")
         
         # 5. Создание Атлетов (30)
         print("Создание атлетов...")
         athletes = []
-        for _ in range(30):
+
+        # 5.1. Создаем одного известного атлета для входа
+        known_athlete_name = "Антонов Игорь Алексеевич"
+        known_athlete = Athlete(
+            full_name=known_athlete_name,
+            email="test@test.com",
+            password_hash=get_password_hash("string"), # Легко запоминаемый пароль
+            phone_number="+79990001122"
+        )
+        athletes.append(known_athlete)
+        used_names.add(known_athlete_name) # Добавляем имя в список использованных
+        print("Добавлен тестовый атлет для входа: email='test@test.com', password='string'")
+
+        # 5.2. Создаем остальных 29 случайных атлетов
+        for _ in range(29):
             athletes.append(Athlete(
                 full_name=generate_full_name(used_names),
                 email=f"athlete.{len(used_names)}@school.com",
@@ -126,7 +194,7 @@ async def seed_database():
                 phone_number=f"+7900{random.randint(1000000, 9999999)}",
             ))
         session.add_all(athletes)
-        print("Атлеты созданы.")
+        print("Остальные 29 атлетов созданы.")
         
         await session.commit() # Сохраняем все созданные сущности
 
@@ -150,12 +218,14 @@ async def seed_database():
             
             # 7. Создание Тренировок для каждой группы (по 5)
             await session.flush() # Получаем ID группы
-            
+
             hall = halls_map[group_def["hall_pref"]]
             for j in range(5):
                 day = random.randint(1, 7)
                 hour = random.choice([9, 11, 14, 16, 18])
-                start = datetime.now().replace(hour=hour, minute=0, second=0) + timedelta(days=day)
+                
+                # ИЗМЕНЕНИЕ ЗДЕСЬ: Используем timezone.utc для создания "aware" datetime
+                start = datetime.now(timezone.utc).replace(hour=hour, minute=0, second=0, microsecond=0) + timedelta(days=day)
                 
                 training = Training(
                     start_time=start,

@@ -250,3 +250,99 @@ export async function getSchedule(params: ScheduleParams = {}): Promise<Training
     const data = await response.json();
     return data;
 }
+
+
+export interface CreateTrainingPayload {
+    start_time: string; // В формате ISO, например new Date().toISOString()
+    end_time: string;   // В формате ISO
+    group_id: number;
+    hall_id: number;
+}
+
+export async function createTraining(payload: CreateTrainingPayload): Promise<{ message: string }> {
+    const accessToken = localStorage.getItem("access_token");
+
+    if (!accessToken) {
+        throw new Error("Пользователь не авторизован");
+    }
+
+    const response = await fetch(`${API_BASE_URL}/schedule/`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+        let errorMessage = "Ошибка при создании тренировки";
+        try {
+            // FastAPI возвращает ошибки в поле "detail"
+            const errorData = await response.json();
+            errorMessage = errorData.detail || errorMessage;
+        } catch (e) {
+            errorMessage = `Ошибка ${response.status}: ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    return data;
+}
+
+
+export interface Group {
+    id: number;
+    name: string;
+}
+
+export interface Hall {
+    id: number;
+    name: string;
+    capacity: number;
+}
+
+export async function getGroups(): Promise<Group[]> {
+    const accessToken = localStorage.getItem("access_token");
+
+    if (!accessToken) {
+        throw new Error("Пользователь не авторизован");
+    }
+
+    const response = await fetch(`${API_BASE_URL}/groups/`, {
+        method: "GET",
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error("Ошибка при получении списка групп");
+    }
+
+    const data = await response.json();
+    return data;
+}
+
+export async function getHalls(): Promise<Hall[]> {
+    const accessToken = localStorage.getItem("access_token");
+
+    if (!accessToken) {
+        throw new Error("Пользователь не авторизован");
+    }
+
+    const response = await fetch(`${API_BASE_URL}/halls/`, {
+        method: "GET",
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error("Ошибка при получении списка залов");
+    }
+
+    const data = await response.json();
+    return data;
+}

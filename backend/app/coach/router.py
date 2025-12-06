@@ -22,7 +22,7 @@ async def get_coach(id: int, current_user: UserSchema = Depends(get_current_user
         if not coach:
             raise HTTPException(status_code=404, detail="Тренер не найден")
 
-        contact_info = Coach.get_contact_info(coach.id)
+        contact_info = await Coach.get_contact_info(coach.id)
         specializations = await SportType.get_specializations(coach.id)
 
         coach_data = CoachSchema(
@@ -34,7 +34,6 @@ async def get_coach(id: int, current_user: UserSchema = Depends(get_current_user
             specialization=specializations
         )
 
-        # TODO: Implement logic to get the schedule for the coach
         schedule = await Coach.get_upcoming_trainings(coach.id)
 
         return CoachResponseSchema(trainer=coach_data, schedule=schedule)

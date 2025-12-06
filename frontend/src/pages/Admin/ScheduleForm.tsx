@@ -8,6 +8,7 @@ import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { useNavigate, useParams } from 'react-router-dom';
 import { Input } from '@/components/ui/input.tsx';
+import { createTraining, CreateTrainingPayload, getGroups, getHalls } from '@/lib//api';
 
 
 interface Training {
@@ -51,28 +52,23 @@ const ScheduleForm: React.FC = () => {
     const [endDateTime, setEndDateTime] = useState<Date | null>(null);
 
     useEffect(() => {
-        // Fetch groups and halls from the server
+        // ЗАМЕНИТЕ ВЕСЬ fetchData НА ЭТОТ БЛОК
         const fetchData = async () => {
-            // TODO: Implement getGroups and getHalls in api.ts
-            // const groupsData = await getGroups();
-            // const hallsData = await getHalls();
-            // setGroups(groupsData);
-            // setHalls(hallsData);
+            try {
+                // Вызываем наши новые API функции
+                const groupsData = await getGroups();
+                const hallsData = await getHalls();
+                
+                // Записываем реальные данные в состояние
+                setGroups(groupsData);
+                setHalls(hallsData);
 
-            // Mock data
-            const mockGroups: Group[] = [
-                { id: 1, name: "Группа 1" },
-                { id: 2, name: "Группа 2" },
-            ];
-            const mockHalls: Hall[] = [
-                { id: 1, name: "Зал 1", capacity: 20 },
-                { id: 2, name: "Зал 2", capacity: 15 },
-            ];
-            setGroups(mockGroups);
-            setHalls(mockHalls);
-            console.log("TODO: Implement getGroups and getHalls in api.ts");
-            console.log("Implement API call to pre-fill the form");
+            } catch (error) {
+                console.error("Ошибка при загрузке данных для формы:", error);
+                // Здесь можно добавить обработку ошибок, например, показать уведомление
+            }
         };
+        
         fetchData();
 
         if (id) {
@@ -153,21 +149,51 @@ const ScheduleForm: React.FC = () => {
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        // TODO: Implement createTraining or updateTraining in api.ts
-        // if (id) {
-        //     await updateTraining(parseInt(id), training);
-        // } else {
-        //     await createTraining(training);
-        // }
-        console.log("TODO: Implement createTraining or updateTraining in api.ts");
-        console.log("Implement API call to submit the form");
-        console.log("Selected Group ID:", selectedGroupId);
-        console.log("Selected Hall ID:", selectedHallId);
-        console.log("Selected Date:", selectedDate);
-        console.log("Start Time:", startTime);
-        console.log("End Time:", endTime);
-        navigate('/schedule');
+            e.preventDefault();
+
+            // 1. Валидация: Проверяем, что все поля заполнены
+            if (!selectedDate || !startTime || !endTime || !selectedGroupId || !selectedHallId) {
+                alert("Пожалуйста, заполните все поля формы.");
+                return;
+            }
+
+            // 2. Сборка datetime: Совмещаем дату и время в полноценные объекты Date
+            try {
+                const [startHours, startMinutes] = startTime.split(':').map(Number);
+                const [endHours, endMinutes] = endTime.split(':').map(Number);
+
+                const startDateTime = new Date(selectedDate);
+                startDateTime.setHours(startHours, startMinutes, 0, 0); // Устанавливаем часы и минуты
+
+                const endDateTime = new Date(selectedDate);
+                endDateTime.setHours(endHours, endMinutes, 0, 0);
+
+                // Дополнительная проверка
+                if (endDateTime <= startDateTime) {
+                    alert("Время окончания должно быть позже времени начала.");
+                    return;
+                }
+
+                // 3. Формирование тела запроса (payload)
+                const payload: CreateTrainingPayload = {
+                    start_time: startDateTime.toISOString(), // Преобразуем в ISO строку
+                    end_time: endDateTime.toISOString(),
+                    group_id: selectedGroupId,
+                    hall_id: selectedHallId
+                };
+
+                // 4. Вызов API
+                // TODO: Когда будете реализовывать редактирование, здесь будет `if (id)`
+                const response = await createTraining(payload);
+
+                alert(response.message); // Показываем успешное сообщение от бэкенда
+                navigate('/schedule'); // Перенаправляем на страницу расписания
+
+            } catch (error) {
+                // Отлавливаем ошибку (например, 409 Conflict от бэкенда)
+                console.error("Ошибка при создании тренировки:", error);
+                alert((error as Error).message); // Показываем пользователю текст ошибки
+            }
     };
 
     return (

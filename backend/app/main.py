@@ -6,6 +6,8 @@ from app.user.router import user_router
 from app.coach.router import coach_router
 from app.test.router import test_router
 from app.training.router import training_router
+from app.group.router import group_router
+from app.hall.router import hall_router
 
 async def lifespan(app: FastAPI):
     await create_db_and_tables(app)
@@ -35,6 +37,8 @@ app.include_router(user_router)
 app.include_router(coach_router)
 app.include_router(test_router)
 app.include_router(training_router)
+app.include_router(group_router)
+app.include_router(hall_router)
 
 # Запуск сервера
 if __name__ == "__main__":

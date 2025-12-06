@@ -7,9 +7,11 @@ from app.specialization.models import SportType
 from app.specialization.coach_sport_type import CoachSportType # Импортируем CoachSportType
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import async_session_maker
+from sqlalchemy import exists
+from datetime import datetime as dt
 from app.coach.schemas import CoachSchema
 from app.user.models import User
-from app.group.models import group_coaches
+from app.group.models import Group, group_coaches
 
 class Coach(User):
     __tablename__ = "coaches"
@@ -48,7 +50,7 @@ class Coach(User):
             coach_schemas = []
             for coach in coaches:
                 coach_id = coach.id
-                contact_info = Coach.get_contact_info(coach_id)
+                contact_info = await Coach.get_contact_info(coach_id)
                 specializations = await SportType.get_specializations(coach_id)
                 coach_schema = CoachSchema(
                     id=coach_id,
@@ -112,14 +114,50 @@ class Coach(User):
         return all_trainings
 
     @staticmethod
-    def get_contact_info(coach_id: int) -> Dict[str, str]:
-            # TODO: Implement logic to get contact info by coach ID
-        return {"phone": "+79991234567", "email": "coach@example.com"}  # Placeholder
+    async def get_contact_info(coach_id: int) -> Optional[Dict[str, str]]:
+        """
+        Получает контактную информацию тренера (телефон и email) по его ID.
+        Метод самостоятельно управляет сессией.
+        """
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(Coach.phone_number, Coach.email).where(Coach.id == coach_id)
+            )
+            if coach_data := result.first():
+                return {"phone": coach_data.phone_number, "email": coach_data.email}
+            return None
 
     @staticmethod
     def create_coach(user_id: int) -> bool:
             pass
 
     @staticmethod
-    def is_available(coach_id: int, start_time, end_time) -> bool:
-            pass
+    async def is_available(coach_id: int, start_time: dt, end_time: dt) -> bool:
+        """
+        Проверяет, свободен ли тренер в указанный временной интервал.
+        Возвращает True, если свободен, и False, если есть пересечение.
+        """
+        # Локальные импорты
+        from app.training.models import Training
+        from app.group.models import training_groups, group_coaches
+
+        async with async_session_maker() as session:
+            # Запрос для поиска пересекающихся тренировок у данного тренера
+            # Цепочка JOIN: Training -> training_groups -> group_coaches
+            overlap_query = select(Training.id).join(
+                Training.groups # Явно указываем, что джойним к модели Group через связь groups
+            ).join(
+                Group.coaches   # Затем от Group джойним к модели Coach через связь coaches
+            ).where(
+                Coach.id == coach_id, # Фильтруем по ID нужного нам тренера
+                Training.start_time < end_time,
+                Training.end_time > start_time
+            )
+
+            # Проверяем, существует ли хотя бы одна такая запись
+            overlapping_training_exists = await session.execute(
+                select(exists(overlap_query))
+            )
+            
+            # Возвращаем True, если НЕТ пересечений
+            return not overlapping_training_exists.scalar()

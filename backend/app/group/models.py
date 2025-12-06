@@ -5,7 +5,6 @@ from app.database import Base, async_session_maker
 from typing import List
 from app.athlete.models import Athlete
 
-# Существующая ассоциативная таблица
 group_athletes = Table(
     "group_athletes",
     Base.metadata,
@@ -13,7 +12,6 @@ group_athletes = Table(
     Column("athlete_id", ForeignKey("athletes.id"), primary_key=True),
 )
 
-# Существующая ассоциативная таблица
 group_coaches = Table(
     "group_coaches",
     Base.metadata,
@@ -21,7 +19,6 @@ group_coaches = Table(
     Column("coach_id", ForeignKey("coaches.id"), primary_key=True),
 )
 
-# АССОЦИАТИВНАЯ ТАБЛИЦА для связи тренировок и групп
 training_groups = Table(
     "training_groups",
     Base.metadata,
@@ -60,7 +57,6 @@ class Group(Base):
         Запрос исправлен для работы со связью "многие-ко-многим".
         """
         async with async_session_maker() as session:
-            # ПРАВИЛЬНЫЙ ЗАПРОС: ищем группы через join с ассоциативной таблицей
             query = select(Group).join(group_coaches).where(group_coaches.c.coach_id == coach_id)
             result = await session.execute(query)
             groups = result.scalars().all()
